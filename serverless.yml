@@ -1,0 +1,83 @@
+service: acoria-event-platform
+
+provider:
+  name: aws
+  runtime: python3.6
+  stage: ${opt:stage, 'dev'}
+  region: us-east-1
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:PutItem
+        - dynamodb:GetItem
+        - dynamodb:Query
+        - dynamodb:Scan
+        - dynamodb:UpdateItem
+      Resource: "arn:aws:dynamodb:${self:provider.region}:*:table/*"
+    - Effect: Allow
+      Action:
+        - sqs:SendMessage
+        - sqs:ReceiveMessage
+        - sqs:DeleteMessage
+      Resource: "arn:aws:sqs:${self:provider.region}:*:*"
+
+functions:
+  eventProcessor:
+    handler: functions/event_processor.handler
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt: [EventQueue, Arn]
+    timeout: 30
+    memorySize: 256
+
+  apiHandler:
+    handler: functions/api_handler.handler
+    events:
+      - http:
+          path: /events
+          method: post
+      - http:
+          path: /events/{id}
+          method: get
+      - http:
+          path: /events
+          method: get
+    timeout: 10
+    memorySize: 128
+
+  dataTransformer:
+    handler: functions/data_transformer.handler
+    events:
+      - stream:
+          type: dynamodb
+          arn:
+            Fn::GetAtt: [EventsTable, StreamArn]
+    timeout: 60
+    memorySize: 512
+
+resources:
+  Resources:
+    EventsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:service}-events-${self:provider.stage}
+        AttributeDefinitions:
+          - AttributeName: eventId
+            AttributeType: S
+          - AttributeName: timestamp
+            AttributeType: S
+        KeySchema:
+          - AttributeName: eventId
+            KeyType: HASH
+          - AttributeName: timestamp
+            KeyType: RANGE
+        BillingMode: PAY_PER_REQUEST
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+
+    EventQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-events-${self:provider.stage}
+        VisibilityTimeout: 60

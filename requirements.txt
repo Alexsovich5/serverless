@@ -1,0 +1,4 @@
+# Serverless Event Platform
+# Python 3.6 Dependencies - 2018
+
+boto3==1.5.0
