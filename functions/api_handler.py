@@ -1,6 +1,5 @@
 """
 API Handler Lambda
-IT Operations Specialist - ACORIA (2018)
 
 REST API endpoints for event submission and retrieval.
 """
@@ -15,9 +14,9 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 dynamodb = boto3.resource('dynamodb')
-table = dynamodb.Table('acoria-event-platform-events-production')
+table = dynamodb.Table('event-platform-events-production')
 sqs = boto3.client('sqs')
-QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/123456789/acoria-event-platform-events-production'
+QUEUE_URL = 'https://sqs.us-east-1.amazonaws.com/123456789/event-platform-events-production'
 
 
 def handler(event, context):

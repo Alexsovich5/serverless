@@ -1,6 +1,5 @@
 """
 Event Processor Lambda
-IT Operations Specialist - ACORIA (2018)
 
 Processes events from SQS queue, validates and enriches them,
 then stores in DynamoDB.
@@ -16,7 +15,7 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 dynamodb = boto3.resource('dynamodb')
-table = dynamodb.Table('acoria-event-platform-events-production')
+table = dynamodb.Table('event-platform-events-production')
 
 
 def handler(event, context):

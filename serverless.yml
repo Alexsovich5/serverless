@@ -1,4 +1,4 @@
-service: acoria-event-platform
+service: event-platform
 
 provider:
   name: aws
