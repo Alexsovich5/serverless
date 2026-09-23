@@ -1,67 +1,40 @@
 # Serverless Event-Driven Architecture
 
-![Project Status](https://img.shields.io/badge/Status-Complete-brightgreen)
-![Timeline](https://img.shields.io/badge/Timeline-February%202018%20--%20May%202018-blue)
-![Technology](https://img.shields.io/badge/Tech-AWS%20Lambda%20%7C%20API%20Gateway%20%7C%20DynamoDB-orange)
-
-## Project Overview
-
 Event-driven serverless architecture on AWS for processing and transforming business events with Lambda functions, API Gateway endpoints, and DynamoDB storage.
 
-**Role**: IT Operations Specialist
-**Organization**: ACORIA
-**Duration**: February 2018 - May 2018
-**Project**: #16 of 30 in IT Career Portfolio
+Personal project, built to explore an event-driven Lambda pipeline with API Gateway, SQS and DynamoDB. It is not production software — see **Status** below for exactly what is and isn't implemented.
 
-## Business Impact
+## Status
 
-- **Zero Server Management**: Fully serverless infrastructure
-- **Auto-scaling**: Handles 0 to 10,000+ requests per second
-- **70% Cost Reduction**: Pay-per-invocation vs always-on servers
-- **Sub-100ms Response Time**: Optimized Lambda cold starts
+**Implemented**
 
-## Technology Stack
+- API handler Lambda writing to DynamoDB and enqueueing to SQS
+- Event processor Lambda consuming the queue
+- Serverless Framework deployment config
 
-- **AWS Lambda**: Serverless compute (Python 3.6)
-- **API Gateway**: RESTful API management
-- **DynamoDB**: NoSQL event storage
-- **SQS/SNS**: Event routing and notifications
-- **Serverless Framework**: Infrastructure as Code
+**Not implemented / known limitations**
 
-## Project Structure
+- No data transformer function and no tests (the earlier README claimed both)
+- Table and queue names are hardcoded rather than injected
+- Never deployed
 
-```
-serverless/
-├── README.md
-├── serverless.yml
-├── requirements.txt
-├── functions/
-│   ├── event_processor.py
-│   ├── api_handler.py
-│   └── data_transformer.py
-├── config/
-│   └── dynamodb_tables.json
-└── tests/
-    └── test_handler.py
-```
+## Built with
 
-## Deployment
+- **Python** — boto3
+
+## Running it
 
 ```bash
-npm install -g serverless
 pip install -r requirements.txt
-serverless deploy --stage production
 ```
 
-## Contributing
+## Layout
 
-This is a historical project from February 2018 - May 2018, preserved for portfolio purposes.
+```
+functions/
+  api_handler.py
+  event_processor.py
+requirements.txt
+serverless.yml
+```
 
-## License
-
-Professional portfolio project - ACORIA
-
----
-
-**Developed during February 2018 - May 2018**
-*Part of Alexander Efrem's IT Career Portfolio (2012-2024)*
