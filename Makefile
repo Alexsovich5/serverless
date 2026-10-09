@@ -11,7 +11,7 @@ build:
 	$(COMPOSE) build tests
 
 lint: build
-	$(RUN) flake8 functions tests
+	$(RUN) flake8 functions local tests
 
 unit: build
 	$(RUN) pytest tests/unit $(ARGS)

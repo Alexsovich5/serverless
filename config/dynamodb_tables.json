@@ -1,0 +1,10 @@
+{"tables": [
+  {"logicalId": "EventsTable", "nameSuffix": "events",
+   "keySchema": [{"AttributeName": "eventId", "KeyType": "HASH"}],
+   "attributes": [{"AttributeName":"eventId","AttributeType":"S"}, {"AttributeName":"type","AttributeType":"S"}, {"AttributeName":"timestamp","AttributeType":"S"}],
+   "globalSecondaryIndexes": [{"IndexName":"type-timestamp-index", "KeySchema":[{"AttributeName":"type","KeyType":"HASH"},{"AttributeName":"timestamp","KeyType":"RANGE"}], "Projection":{"ProjectionType":"ALL"}}],
+   "stream": "NEW_IMAGE", "read": 5, "write": 5},
+  {"logicalId": "TransformedTable", "nameSuffix": "transformed",
+   "keySchema": [{"AttributeName": "eventId", "KeyType": "HASH"}],
+   "attributes": [{"AttributeName":"eventId","AttributeType":"S"}], "read": 5, "write": 5}
+]}
