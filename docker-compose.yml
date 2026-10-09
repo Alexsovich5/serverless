@@ -10,6 +10,31 @@ services:
       AWS_DEFAULT_REGION: us-east-1
       AWS_ACCESS_KEY_ID: testing
       AWS_SECRET_ACCESS_KEY: testing
+      DYNAMODB_ENDPOINT_URL: http://localstack:4569
+      DYNAMODBSTREAMS_ENDPOINT_URL: http://localstack:4570
+      SNS_ENDPOINT_URL: http://localstack:4575
+      SQS_ENDPOINT_URL: http://localstack:4576
+    depends_on:
+      localstack:
+        condition: service_healthy
+
+  localstack:
+    image: localstack/localstack:0.8.6
+    platform: linux/amd64
+    environment:
+      SERVICES: dynamodb,dynamodbstreams,kinesis,sns,sqs
+      HOSTNAME_EXTERNAL: localstack
+      DEFAULT_REGION: us-east-1
+    ports:
+      - '20768:4568'
+      - '20769:4569'
+      - '20770:4570'
+      - '20775:4575'
+      - '20776:4576'
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket;[socket.create_connection(('localhost',p),2) for p in (4568,4569,4570,4575,4576)]"]
+      interval: 5s
+      retries: 60
 
   sls:
     build:

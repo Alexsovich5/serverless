@@ -50,6 +50,13 @@ def test_client_uses_default_endpoint_when_unset(monkeypatch):
     assert sqs._endpoint.host == 'https://queue.amazonaws.com'
 
 
+def test_empty_endpoint_override_counts_as_unset(monkeypatch):
+    monkeypatch.setenv('SQS_ENDPOINT_URL', '')
+    assert common._endpoint_url('sqs') is None
+    sqs = common.client('sqs')
+    assert sqs._endpoint.host == 'https://queue.amazonaws.com'
+
+
 def test_endpoint_variable_strips_non_alphanumerics(monkeypatch):
     monkeypatch.setenv('DYNAMODBSTREAMS_ENDPOINT_URL', 'http://localstack:4570')
     streams = common.client('dynamodbstreams')
