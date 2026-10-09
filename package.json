@@ -1,0 +1,7 @@
+{
+  "name": "event-platform",
+  "private": true,
+  "devDependencies": {
+    "serverless": "1.27.3"
+  }
+}

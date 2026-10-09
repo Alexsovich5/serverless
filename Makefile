@@ -5,7 +5,7 @@ COMPOSE ?= docker compose
 RUN = $(COMPOSE) run --rm --no-deps tests
 ARGS ?=
 
-.PHONY: build lint unit test shell
+.PHONY: build lint unit package test shell
 
 build:
 	$(COMPOSE) build tests
@@ -16,7 +16,12 @@ lint: build
 unit: build
 	$(RUN) pytest tests/unit $(ARGS)
 
-test: lint unit
+package: build
+	$(COMPOSE) build sls
+	$(COMPOSE) run --rm sls serverless package --stage dev
+	$(RUN) pytest tests/package $(ARGS)
+
+test: lint unit package
 
 shell: build
 	$(RUN) bash

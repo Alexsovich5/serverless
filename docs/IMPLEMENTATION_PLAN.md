@@ -264,7 +264,7 @@ an event.transformed notification to SNS; ignore modify and remove records.
   - `WORKDIR /app`
   - `COPY package.json package-lock.json ./`
   - `RUN npm ci`
-- create `package-lock.json`, generated once and committed: `docker run --rm -v "$PWD":/app -w /app -e SLS_TRACKING_DISABLED=1 node:8.11.2 sh -c 'npm install -g npm@6.1.0 && npm install --before=2018-05-31 --package-lock-only --no-audit'`.
+- create `package-lock.json`, generated once and committed: `docker run --rm -v "$PWD":/app -w /app -e SLS_TRACKING_DISABLED=1 node:8.11.2 sh -c 'npm install -g npm@6.14.18 && npm install --before=2018-05-31 --package-lock-only --no-audit'`. npm 6.1.0 has no `--before` option (it silently resolves current versions), so the lockfile is resolved with a later npm 6 release; it is still lockfileVersion 1 and the image installs it with npm 6.1.0 `npm ci`. Every entry in the resulting lockfile was checked against the registry `time` field to be published on or before 2018-05-31.
 - modify `docker-compose.yml`: add an `sls` service. It builds `Dockerfile.sls`, mounts `.:/app` with an anonymous volume on `/app/node_modules`, and sets dummy AWS credentials.
 - modify `Makefile`: `package` runs `$(COMPOSE) run --rm sls serverless package --stage dev` followed by `$(COMPOSE) run --rm --no-deps tests pytest tests/package`, and `test` becomes `lint unit package`.
 - create `tests/package/__init__.py`.

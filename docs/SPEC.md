@@ -263,7 +263,7 @@ boto3 1.7.28 is the newest boto3 release before the 2018-05-31 cutoff. On real L
 |---|---|---|---|
 | Serverless Framework (`package.json` devDependency) | 1.27.3 | 2018-05-23 | The most popular Lambda deployment framework of 2018, and the last release before the cutoff. |
 | Node.js (image) | 8.11.2 | 2018-05-15 | Active LTS in May 2018. Serverless 1.x needs Node ≥ 4. |
-| npm (installed in the sls image) | 6.1.0 | 2018-05-24 | `npm install --before=2018-05-31` resolves the serverless dependency tree as it stood at the cutoff, once, into a committed `package-lock.json`. Image builds then use `npm ci` (added in npm 5.7.0, February 2018). |
+| npm (installed in the sls image) | 6.1.0 | 2018-05-24 | Image builds install the committed `package-lock.json` (resolved as of 2018-05-31, see §11) with `npm ci` (added in npm 5.7.0, February 2018). |
 | LocalStack | 0.8.6 | image pushed 2018-04-02 | The usual 2018 local AWS emulator: DynamoDB (DynamoDB Local), DynamoDB Streams (backed by Kinesis/kinesalite, which must also be started), SNS and SQS on separate ports. |
 | Docker Compose file format | 2.4 | Compose 1.21.0 (2018-04-10) | Supports both `depends_on: condition: service_healthy` and the service-level `platform:` key (the latter needs format 2.4). |
 
@@ -338,7 +338,7 @@ The integration layer covers:
 - The API has no authentication, and CORS allows `*`.
 - `GET /events` without `type` uses a Scan, which is unordered and does not page beyond `limit`. There are no pagination tokens.
 - The payload is stored as a JSON string, so it cannot be queried by payload attributes in DynamoDB.
-- The npm transitive tree for Serverless 1.27.3 was resolved once with `npm install --before=2018-05-31` and is committed as `package-lock.json`; the image installs it with `npm ci`. Regenerating the lockfile depends on registry metadata.
+- The npm transitive tree for Serverless 1.27.3 was resolved once with `npm install --before=2018-05-31` (run with npm 6.14.18, because npm 6.1.0 ignores `--before`) and is committed as `package-lock.json`; the image installs it with `npm ci`. Regenerating the lockfile depends on registry metadata.
 - LocalStack 0.8.6 quirks the design works around:
   - DynamoDB Streams need the `kinesis` service running (see §4.2).
   - `DescribeTable` returns DynamoDB Local's own `LatestStreamArn` (region `ddblocal`), which LocalStack's `DescribeStream` does not recognise. The local stream poller and the integration tests therefore take the stream ARN from `dynamodbstreams.list_streams()`. `LatestStreamArn` is only relied on in the moto and CloudFormation paths.

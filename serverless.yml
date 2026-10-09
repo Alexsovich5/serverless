@@ -5,6 +5,21 @@ provider:
   runtime: python3.6
   stage: ${opt:stage, 'dev'}
   region: us-east-1
+  environment:
+    EVENTS_TABLE: ${self:service}-events-${self:provider.stage}
+    TRANSFORMED_TABLE: ${self:service}-transformed-${self:provider.stage}
+    INGEST_TOPIC_ARN:
+      Fn::Join:
+        - ''
+        - - 'arn:aws:sns:'
+          - Ref: AWS::Region
+          - ':'
+          - Ref: AWS::AccountId
+          - ':${self:service}-ingest-${self:provider.stage}'
+    NOTIFY_TOPIC_ARN:
+      Ref: NotificationsTopic
+    FAILED_QUEUE_URL:
+      Ref: FailedEventsQueue
   iamRoleStatements:
     - Effect: Allow
       Action:
@@ -12,22 +27,45 @@ provider:
         - dynamodb:GetItem
         - dynamodb:Query
         - dynamodb:Scan
-        - dynamodb:UpdateItem
-      Resource: "arn:aws:dynamodb:${self:provider.region}:*:table/*"
+      Resource:
+        - Fn::GetAtt: [EventsTable, Arn]
+        - Fn::Join:
+            - '/'
+            - - Fn::GetAtt: [EventsTable, Arn]
+              - index/*
+        - Fn::GetAtt: [TransformedTable, Arn]
+    - Effect: Allow
+      Action:
+        - sns:Publish
+      Resource:
+        - Fn::Join:
+            - ''
+            - - 'arn:aws:sns:'
+              - Ref: AWS::Region
+              - ':'
+              - Ref: AWS::AccountId
+              - ':${self:service}-ingest-${self:provider.stage}'
+        - Ref: NotificationsTopic
     - Effect: Allow
       Action:
         - sqs:SendMessage
-        - sqs:ReceiveMessage
-        - sqs:DeleteMessage
-      Resource: "arn:aws:sqs:${self:provider.region}:*:*"
+      Resource:
+        - Fn::GetAtt: [FailedEventsQueue, Arn]
+
+package:
+  exclude:
+    - tests/**
+    - local/**
+    - docs/**
+    - node_modules/**
+    - var/**
+    - requirements-dev.txt
 
 functions:
   eventProcessor:
     handler: functions/event_processor.handler
     events:
-      - sqs:
-          arn:
-            Fn::GetAtt: [EventQueue, Arn]
+      - sns: ${self:service}-ingest-${self:provider.stage}
     timeout: 30
     memorySize: 256
 
@@ -37,12 +75,15 @@ functions:
       - http:
           path: /events
           method: post
+          cors: true
       - http:
           path: /events/{id}
           method: get
+          cors: true
       - http:
           path: /events
           method: get
+          cors: true
     timeout: 10
     memorySize: 128
 
@@ -53,6 +94,8 @@ functions:
           type: dynamodb
           arn:
             Fn::GetAtt: [EventsTable, StreamArn]
+          batchSize: 25
+          startingPosition: TRIM_HORIZON
     timeout: 60
     memorySize: 512
 
@@ -65,19 +108,52 @@ resources:
         AttributeDefinitions:
           - AttributeName: eventId
             AttributeType: S
+          - AttributeName: type
+            AttributeType: S
           - AttributeName: timestamp
             AttributeType: S
         KeySchema:
           - AttributeName: eventId
             KeyType: HASH
-          - AttributeName: timestamp
-            KeyType: RANGE
-        BillingMode: PAY_PER_REQUEST
+        GlobalSecondaryIndexes:
+          - IndexName: type-timestamp-index
+            KeySchema:
+              - AttributeName: type
+                KeyType: HASH
+              - AttributeName: timestamp
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+            ProvisionedThroughput:
+              ReadCapacityUnits: 5
+              WriteCapacityUnits: 5
+        ProvisionedThroughput:
+          ReadCapacityUnits: 5
+          WriteCapacityUnits: 5
         StreamSpecification:
-          StreamViewType: NEW_AND_OLD_IMAGES
+          StreamViewType: NEW_IMAGE
 
-    EventQueue:
+    TransformedTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:service}-transformed-${self:provider.stage}
+        AttributeDefinitions:
+          - AttributeName: eventId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: eventId
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 5
+          WriteCapacityUnits: 5
+
+    NotificationsTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: ${self:service}-notifications-${self:provider.stage}
+
+    FailedEventsQueue:
       Type: AWS::SQS::Queue
       Properties:
-        QueueName: ${self:service}-events-${self:provider.stage}
-        VisibilityTimeout: 60
+        QueueName: ${self:service}-failed-${self:provider.stage}
+        MessageRetentionPeriod: 1209600

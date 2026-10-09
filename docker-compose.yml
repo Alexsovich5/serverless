@@ -11,6 +11,20 @@ services:
       AWS_ACCESS_KEY_ID: testing
       AWS_SECRET_ACCESS_KEY: testing
 
+  sls:
+    build:
+      context: .
+      dockerfile: Dockerfile.sls
+    image: serverless:sls
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: testing
+      AWS_SECRET_ACCESS_KEY: testing
+      SLS_TRACKING_DISABLED: '1'
+
 networks:
   default:
     ipam:
