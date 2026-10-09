@@ -11,7 +11,7 @@ Each task below is **one commit** (12 tasks: T1 to T8, T9a, T9b, T10, T11). Task
   - `localstack`: `localstack/localstack:0.8.6`. Added in T8.
   - `app`: the same image as `tests`, running `python -m local.runner`. Added in T10.
 - **Make targets:**
-  - `make lint` runs flake8.
+  - `make lint` runs flake8 over `functions` and `tests`.
   - `make unit` runs `pytest tests/unit` with `--no-deps`, so no network is needed.
   - `make package` (from T7) runs `serverless package`, then `pytest tests/package`.
   - `make integration` (from T8) starts LocalStack and runs `pytest tests/integration`.
