@@ -1,0 +1,18 @@
+version: '2.4'
+
+services:
+  tests:
+    build: .
+    image: serverless:tests
+    volumes:
+      - .:/app
+    environment:
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: testing
+      AWS_SECRET_ACCESS_KEY: testing
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.47.0.0/24

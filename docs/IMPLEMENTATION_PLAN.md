@@ -4,7 +4,7 @@ Each task below is **one commit** (12 tasks: T1 to T8, T9a, T9b, T10, T11). Task
 
 ## Conventions
 
-- **Docker only.** Everything runs in Docker, and the host needs only Docker, Compose and make. The Makefile exports `DOCKER_DEFAULT_PLATFORM=linux/amd64` and uses `COMPOSE ?= docker compose`.
+- **Docker only.** Everything runs in Docker, and the host needs only Docker, Compose and make. The Makefile exports `DOCKER_DEFAULT_PLATFORM=linux/amd64` and `COMPOSE_PROJECT_NAME ?= serverless`, and uses `COMPOSE ?= docker compose`. Any host port published by a later task is mapped from the range 20700 to 20799.
 - **Compose services:**
   - `tests`: built from `Dockerfile`, `FROM python:3.6.5-stretch`, with the repo mounted at `/app`.
   - `sls`: `Dockerfile.sls`, `FROM node:8.11.2`. Added in T7.
@@ -33,7 +33,7 @@ Each task below is **one commit** (12 tasks: T1 to T8, T9a, T9b, T10, T11). Task
   - `ENV PYTHONPATH=/app PYTHONDONTWRITEBYTECODE=1 AWS_DEFAULT_REGION=us-east-1`
   - `WORKDIR /app`
   - copies `requirements*.txt`, then runs `pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt`, then `COPY . .`
-- create `docker-compose.yml`, format `'2.4'` (Compose 1.21.0, 2018-04-10; needed for the `platform:` key used from T8), with one service `tests`: `build: .`, `volumes: ['.:/app']`, and env for the region and dummy credentials.
+- create `docker-compose.yml`, format `'2.4'` (Compose 1.21.0, 2018-04-10; needed for the `platform:` key used from T8), with one service `tests`: `build: .`, `image: serverless:tests`, `volumes: ['.:/app']`, and env for the region and dummy credentials. The default network is pinned to the subnet `172.47.0.0/24` (`networks.default.ipam.config`), so the stack does not collide with other Compose projects on a shared Docker host.
 - create `Makefile` with targets `build`, `lint` (`flake8 tests`), `unit`, `test` (`lint unit`) and `shell`.
 - create `requirements-dev.txt` with the exact pins from §6.2: pytest 3.5.1 and its dependencies, flake8 3.5.0 and its dependencies, moto 1.3.3 and the full transitive list.
 - modify `requirements.txt` to the exact pins from §6.1 (`boto3==1.7.28`, `botocore==1.10.28`, `s3transfer==0.1.13`, `jmespath==0.9.3`, `python-dateutil==2.6.1`, `docutils==0.14`, `six==1.11.0`).

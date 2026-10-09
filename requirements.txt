@@ -1,4 +1,7 @@
-# Serverless Event Platform
-# Python 3.6 Dependencies - 2018
-
-boto3==1.5.0
+boto3==1.7.28
+botocore==1.10.28
+s3transfer==0.1.13
+jmespath==0.9.3
+python-dateutil==2.6.1
+docutils==0.14
+six==1.11.0

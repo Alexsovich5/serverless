@@ -1,0 +1,43 @@
+# Test runner
+pytest==3.5.1
+py==1.5.3
+pluggy==0.6.0
+attrs==18.1.0
+more-itertools==4.2.0
+
+# Linter
+flake8==3.5.0
+pycodestyle==2.3.1
+pyflakes==1.6.0
+mccabe==0.6.1
+
+# AWS mocks and their transitive dependencies
+moto==1.3.3
+Jinja2==2.10
+MarkupSafe==1.0
+boto==2.48.0
+cookies==2.2.1
+cryptography==2.2.2
+asn1crypto==0.24.0
+cffi==1.11.5
+pycparser==2.18
+requests==2.18.4
+urllib3==1.22
+idna==2.6
+chardet==3.0.4
+certifi==2018.4.16
+xmltodict==0.11.0
+Werkzeug==0.14.1
+pyaml==17.12.0
+PyYAML==3.12
+pytz==2018.4
+mock==2.0.0
+pbr==4.0.3
+docker==3.3.0
+docker-pycreds==0.2.3
+websocket-client==0.48.0
+jsondiff==1.1.1
+aws-xray-sdk==0.95
+jsonpickle==0.9.6
+wrapt==1.10.11
+responses==0.9.0
