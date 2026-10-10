@@ -8,14 +8,14 @@ Personal project built on the 2018-era stack (AWS Lambda Python 3.6, Serverless 
 
 **Implemented**
 
-- Event ingestion API (`functions/api_handler.py`): `POST /events` assigns a UUID `eventId`, publishes to the SNS ingest topic and returns `202`; a body that is not a JSON object returns `400`.
+- Event ingestion API (`functions/api_handler.py`): `POST /events` assigns a UUID `eventId`, publishes to the SNS ingest topic and returns `202`; a body that is not a JSON object or is nested more than 32 levels returns `400`, a non-JSON `Content-Type` returns `415`, and an event above the 256 KiB SNS limit returns `413`. Unexpected errors return a generic `500` without exception text.
 - Event retrieval API: `GET /events/{id}` returns the stored event or `404`; `GET /events?limit=N&type=T` queries the `type-timestamp-index` GSI newest first when `type` is given and scans otherwise; `limit` must be 1 to 100 (default 50); other methods return `405`.
-- Event processor (`functions/event_processor.py`, SNS trigger): validates `source`, `type` and `payload`, enriches with `timestamp` and `status` while keeping the API's `eventId`, writes with `attribute_not_exists(eventId)` so redeliveries do not overwrite, and sends invalid events to the SQS failed-events queue with a reason.
-- Data transformer (`functions/data_transformer.py`, DynamoDB stream trigger): for `INSERT` records it lower-cases `source` and `type`, flattens the payload, derives `day`, writes to the transformed-events table and publishes to the notifications topic; `MODIFY`/`REMOVE` records and images missing a required attribute are skipped.
+- Event processor (`functions/event_processor.py`, SNS trigger): validates `source`, `type` and `payload`, enriches with `timestamp` and `status` while keeping the API's `eventId`, writes with `attribute_not_exists(eventId)` so redeliveries do not overwrite, and sends invalid events (including undecodable or over-nested messages) to the SQS failed-events queue with a reason, truncating the original message if needed to fit the SQS size limit.
+- Data transformer (`functions/data_transformer.py`, DynamoDB stream trigger): for `INSERT` records it lower-cases `source` and `type`, flattens the payload, derives `day`, writes to the transformed-events table and publishes to the notifications topic; `MODIFY`/`REMOVE` records and images that are missing a required attribute, over-nested or too large for a DynamoDB item are logged and skipped, so one record cannot block the stream.
 - Shared runtime module (`functions/common.py`): configuration from environment variables, boto3 client and resource factories with per-service endpoint overrides, the API Gateway response helper and a `Decimal`-aware JSON encoder.
 - Infrastructure as code (`serverless.yml`, Serverless 1.27.3): the three functions with http, sns and stream triggers, both DynamoDB tables with provisioned throughput, stream and GSI, the notifications topic, the failed-events queue, scoped IAM statements and environment wiring. `make package` runs `serverless package` and a test checks the generated CloudFormation template.
 - Table definitions (`config/dynamodb_tables.json`): one source for key schemas and indexes, used by the local bootstrap and checked against `serverless.yml` by a test.
-- Local runtime (`local/`): `bootstrap.py` creates the tables, topics and queues on LocalStack; `runner.py` runs an HTTP gateway on port 3000 that builds API Gateway proxy events, an ingest poller that delivers SNS messages to the processor through an SQS subscription, and a stream poller that feeds DynamoDB stream records to the transformer.
+- Local runtime (`local/`): `bootstrap.py` creates the tables, topics and queues on LocalStack; `runner.py` runs an HTTP gateway on port 3000 (loopback unless `--host` is given; request bodies capped at 1 MiB) that builds API Gateway proxy events, an ingest poller that delivers SNS messages to the processor through an SQS subscription, and a stream poller that feeds DynamoDB stream records to the transformer.
 - Tests: moto unit tests for every handler, integration tests that run the real handlers through the local runner against LocalStack, flake8 lint and a CloudFormation template check, all run by `make test` in the Docker images.
 
 **Not implemented / known limitations**
@@ -46,7 +46,7 @@ Personal project built on the 2018-era stack (AWS Lambda Python 3.6, Serverless 
 
 ## Running it
 
-Everything runs in Docker images from the project's era, so nothing needs installing locally beyond Docker.
+Everything runs in Docker images with pinned versions, so nothing needs installing locally beyond Docker.
 
 ```bash
 make up                  # or: docker compose up -d app  (LocalStack + runner on http://localhost:20730)
@@ -112,6 +112,7 @@ tests/
     test_api_handler.py
     test_bootstrap.py
     test_common.py
+    test_compose.py
     test_data_transformer.py
     test_environment.py
     test_event_processor.py

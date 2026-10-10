@@ -22,7 +22,7 @@ services:
   app:
     build: .
     image: serverless:tests
-    command: python -m local.runner --stage local --port 3000
+    command: python -m local.runner --stage local --host 0.0.0.0 --port 3000
     volumes:
       - .:/app
     ports:

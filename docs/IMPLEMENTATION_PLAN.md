@@ -1,6 +1,6 @@
 # serverless: Implementation Plan
 
-Each task below is **one commit** (12 tasks: T1 to T8, T9a, T9b, T10, T11). Tasks are in dependency order, and every task leaves `make test` green. The specification is in `docs/SPEC.md`, and section numbers below (§) refer to it.
+Each task below is **one commit** (13 tasks: T1 to T8, T9a, T9b, T10, T11, T12). Tasks are in dependency order, and every task leaves `make test` green. The specification is in `docs/SPEC.md`, and section numbers below (§) refer to it.
 
 ## Conventions
 
@@ -474,4 +474,32 @@ Rewrite README from template with honest status and layout
 
 List what is implemented and tested, what is out of scope, and state
 that AWS is emulated with LocalStack and moto and never deployed.
+```
+
+---
+
+## T12 — Security and hygiene hardening
+
+**Goal:** a whole-repository review for security, ops-correctness and hygiene problems, with each fix driven by a failing test.
+
+**Found and changed:**
+- `functions/api_handler.py` returned `str(exc)` in every `500` body, leaking botocore errors, endpoint URLs and configuration names to clients. It now returns `500 {"error":"Internal server error"}`; the traceback is logged only. A sentinel test sets `AWS_SECRET_ACCESS_KEY`/`AWS_SESSION_TOKEN` to `S3NTINEL-pw`, forces connection-refused and missing-config failures on every route, and asserts the sentinel is in neither the response nor the log.
+- `POST /events` accepted any content type, so a page in the developer's browser could post a `text/plain` or form body to the local gateway without a preflight. It now requires `Content-Type: application/json` (case-insensitive, parameters allowed), otherwise `415`.
+- Poison events: a body nested deeper than the interpreter's recursion limit made `json.loads` raise `RecursionError` (a `500` in the API, an unhandled error in the processor, and in the transformer an exception that would block the DynamoDB stream shard). Nesting is now limited to 32 levels (`common.json_depth`, iterative) in the API (`400`), the processor (dead-lettered) and the transformer (skipped). The API returns `413` when the SNS message would exceed 256 KiB (counting `\u` escapes), and the transformer skips rows whose flattened fields exceed 350 KiB instead of failing on the 400 KB DynamoDB item limit.
+- The processor's dead-letter body could exceed the SQS limit for a maximum-size message, making the dead-letter send itself fail; the original message is now truncated with `"truncated": true`.
+- `local/runner.py`: the gateway listened on `0.0.0.0` by default and trusted `Content-Length` (unbounded read, crash on a non-integer). It now defaults to `127.0.0.1` (`--host`, which the compose `app` service sets to `0.0.0.0` inside the container network; the published port stays on `127.0.0.1:20730`), answers `400` for an invalid length and `413` above 1 MiB without reading the body. A comment that claimed SNS never redelivers to a failed Lambda function was corrected.
+- Published ports (post-batch item 23): already bound to `127.0.0.1` with a compose-config test; the README states the stack is loopback-only lab software without API authentication.
+- Hygiene: the README Layout was missing `tests/unit/test_compose.py`; `tests/unit/test_readme.py` now compares the Layout with `git ls-files`. An era-flavoured phrase in "Running it" was reworded.
+
+**Not changed:** the API remains unauthenticated (documented limitation); the local pollers still drop a message or batch whose handler raised (documented: no retries).
+
+**Acceptance command:** `make test`, then `make up && make smoke`.
+
+**Commit message:**
+```
+Harden API errors, request limits and poison-record handling
+
+Return a generic 500, require a JSON content type, cap nesting depth
+and message size through API, processor and transformer, bound the
+local gateway's request body and default it to loopback.
 ```

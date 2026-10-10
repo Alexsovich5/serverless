@@ -17,6 +17,8 @@ logger.setLevel(logging.INFO)
 
 REQUIRED_FIELDS = ('source', 'type', 'payload')
 STRING_FIELDS = ('source', 'type')
+# SQS rejects message bodies of 256 KiB or more.
+MAX_DEAD_LETTER_BYTES = 256 * 1024 - 1
 
 
 def handler(event, context):
@@ -37,7 +39,7 @@ def process_message(message_str):
     """Handle one SNS message string; returns the name of the counter to bump."""
     try:
         message = json.loads(message_str)
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         dead_letter(message_str, None, 'Message is not valid JSON: {}'.format(exc))
         return 'failed'
 
@@ -63,6 +65,9 @@ def validate(event):
     """Raise ValueError describing the first problem with an ingest event."""
     if not isinstance(event, dict):
         raise ValueError("Field 'event' must be an object")
+    if common.json_depth(event, limit=common.MAX_JSON_DEPTH) > common.MAX_JSON_DEPTH:
+        raise ValueError("Field 'event' is nested more than {} levels deep".format(
+            common.MAX_JSON_DEPTH))
     for field in REQUIRED_FIELDS:
         if field not in event:
             raise ValueError('Missing required field: {}'.format(field))
@@ -103,14 +108,25 @@ def store(item):
     return True
 
 
+def _dead_letter_body(message_str, event_id, reason):
+    """JSON body for the failed queue, truncating the original message to fit."""
+    envelope = {'eventId': event_id, 'reason': reason, 'message': message_str}
+    body = json.dumps(envelope)
+    size = len(body.encode('utf-8'))
+    keep = len(message_str)
+    while size > MAX_DEAD_LETTER_BYTES and keep > 0:
+        keep = max(0, keep * MAX_DEAD_LETTER_BYTES // size - 64)
+        envelope['message'] = message_str[:keep]
+        envelope['truncated'] = True
+        body = json.dumps(envelope)
+        size = len(body.encode('utf-8'))
+    return body
+
+
 def dead_letter(message_str, event_id, reason):
     """Send the original message and the failure reason to the failed queue."""
     logger.warning('Dead-lettering event %s: %s', event_id, reason)
     common.client('sqs').send_message(
         QueueUrl=common.get_config()['failed_queue_url'],
-        MessageBody=json.dumps({
-            'eventId': event_id,
-            'reason': reason,
-            'message': message_str,
-        }),
+        MessageBody=_dead_letter_body(message_str, event_id, reason),
     )

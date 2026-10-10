@@ -1,8 +1,10 @@
+import http.client
 import json
 import logging
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 import boto3
@@ -107,6 +109,62 @@ def test_gateway_unmatched_path_returns_404_json(gateway):
     assert status == 404
     assert headers['Content-Type'] == 'application/json'
     assert 'error' in body
+
+
+def raw_request(base_url, method, path, headers, body=b''):
+    parts = urllib.parse.urlsplit(base_url)
+    conn = http.client.HTTPConnection(parts.hostname, parts.port, timeout=10)
+    try:
+        conn.putrequest(method, path)
+        for name, value in headers.items():
+            conn.putheader(name, value)
+        conn.endheaders()
+        if body:
+            conn.send(body)
+        resp = conn.getresponse()
+        return resp.status, json.loads(resp.read().decode('utf-8'))
+    finally:
+        conn.close()
+
+
+def test_gateway_listens_on_loopback_by_default(pipeline):
+    server = runner.Gateway(0)
+    try:
+        assert server.server_address[0] == '127.0.0.1'
+    finally:
+        server.server_close()
+
+
+def test_main_defaults_to_loopback_host():
+    assert runner.parse_args([]).host == '127.0.0.1'
+    assert runner.parse_args(['--host', '0.0.0.0']).host == '0.0.0.0'
+
+
+def test_gateway_rejects_body_above_limit_without_reading_it(gateway):
+    status, body = raw_request(gateway, 'POST', '/events', {
+        'Content-Type': 'application/json',
+        'Content-Length': str(runner.MAX_BODY_BYTES + 1),
+    })
+
+    assert status == 413
+    assert body == {'error': 'Request body too large'}
+
+
+@pytest.mark.parametrize('length', ['abc', '-5'])
+def test_gateway_rejects_invalid_content_length(gateway, length):
+    status, body = raw_request(gateway, 'POST', '/events', {
+        'Content-Type': 'application/json', 'Content-Length': length})
+
+    assert status == 400
+    assert body == {'error': 'Invalid Content-Length'}
+
+
+def test_gateway_rejects_text_plain_post(gateway):
+    payload = b'{"type": "click", "payload": {}}'
+    status, body = raw_request(gateway, 'POST', '/events', {
+        'Content-Type': 'text/plain', 'Content-Length': str(len(payload))}, payload)
+
+    assert status == 415
 
 
 def test_sns_record_is_accepted_by_event_processor(pipeline):

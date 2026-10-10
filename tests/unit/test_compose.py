@@ -34,3 +34,8 @@ def test_project_name_is_set_in_the_file():
 
 def test_obsolete_version_key_is_absent():
     assert 'version' not in _compose()
+
+
+def test_app_gateway_listens_on_all_container_interfaces_explicitly():
+    command = _compose()['services']['app']['command']
+    assert '--host 0.0.0.0' in command

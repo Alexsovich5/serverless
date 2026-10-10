@@ -94,3 +94,32 @@ def test_utc_now_iso_format():
     value = common.utc_now_iso()
     assert value.endswith('Z')
     datetime.strptime(value, '%Y-%m-%dT%H:%M:%S.%fZ')
+
+
+@pytest.mark.parametrize('value, depth', [
+    (1, 0),
+    ('text', 0),
+    ({}, 1),
+    ([], 1),
+    ({'a': 1}, 1),
+    ({'a': [1, {'b': None}]}, 3),
+    ([[[]], {}], 3),
+])
+def test_json_depth_counts_container_levels(value, depth):
+    assert common.json_depth(value) == depth
+
+
+def test_json_depth_handles_values_deeper_than_the_recursion_limit():
+    value = []
+    for _ in range(5000):
+        value = [value]
+
+    assert common.json_depth(value) == 5001
+
+
+def test_json_depth_stops_early_past_a_limit():
+    value = []
+    for _ in range(5000):
+        value = [value]
+
+    assert common.json_depth(value, limit=10) == 11

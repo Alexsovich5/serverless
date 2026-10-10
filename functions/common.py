@@ -17,6 +17,9 @@ REQUIRED_VARIABLES = (
 )
 
 
+MAX_JSON_DEPTH = 32
+
+
 class ConfigError(Exception):
     """Raised when required environment variables are missing."""
 
@@ -69,6 +72,29 @@ def response(status, body):
         },
         'body': json.dumps(body, cls=DecimalEncoder),
     }
+
+
+def json_depth(value, limit=None):
+    """Container nesting depth of a decoded JSON value (scalars are 0, {} and [] are 1).
+
+    Iterative, so values deeper than the interpreter's recursion limit are
+    measured too. With a limit, counting stops once the depth exceeds it.
+    """
+    deepest = 0
+    stack = [(value, 1)]
+    while stack:
+        current, level = stack.pop()
+        if isinstance(current, dict):
+            children = current.values()
+        elif isinstance(current, (list, tuple)):
+            children = current
+        else:
+            continue
+        deepest = max(deepest, level)
+        if limit is not None and deepest > limit:
+            return deepest
+        stack.extend((child, level + 1) for child in children)
+    return deepest
 
 
 def utc_now_iso():

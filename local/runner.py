@@ -32,6 +32,8 @@ EVENT_RESOURCE = '/events/{id}'
 EVENT_PATH = re.compile(r'^/events/([^/]+)/?$')
 LIST_PATH = re.compile(r'^/events/?$')
 DEFAULT_TIMEOUT_MS = 30000
+DEFAULT_HOST = '127.0.0.1'
+MAX_BODY_BYTES = 1024 * 1024
 
 
 def _match(raw_path):
@@ -87,21 +89,39 @@ class LambdaContext(object):
 class _GatewayHandler(BaseHTTPRequestHandler):
     """Translate each HTTP request into a proxy event and write back the result."""
 
+    def _error(self, status, message):
+        self.close_connection = True
+        self._write({
+            'statusCode': status,
+            'headers': {'Content-Type': 'application/json'},
+            'body': json.dumps({'error': message}),
+        })
+
+    def _content_length(self):
+        raw = self.headers.get('Content-Length') or '0'
+        try:
+            length = int(raw)
+        except ValueError:
+            return None
+        return length if length >= 0 else None
+
     def _dispatch(self):
         parts = urlsplit(self.path)
-        length = int(self.headers.get('Content-Length') or 0)
-        body = self.rfile.read(length).decode('utf-8') if length else None
+        length = self._content_length()
+        if length is None:
+            return self._error(400, 'Invalid Content-Length')
+        if length > MAX_BODY_BYTES:
+            return self._error(413, 'Request body too large')
+        raw = self.rfile.read(length) if length else b''
+        try:
+            body = raw.decode('utf-8') if length else None
+        except UnicodeDecodeError:
+            return self._error(400, 'Request body is not UTF-8')
         event = http_to_apigw_event(self.command, parts.path, parts.query, body,
                                     dict(self.headers.items()))
         if event is None:
-            result = {
-                'statusCode': 404,
-                'headers': {'Content-Type': 'application/json'},
-                'body': json.dumps({'error': 'Not found'}),
-            }
-        else:
-            result = api_handler.handler(event, LambdaContext('api'))
-        self._write(result)
+            return self._error(404, 'Not found')
+        self._write(api_handler.handler(event, LambdaContext('api')))
 
     def _write(self, result):
         payload = (result.get('body') or '').encode('utf-8')
@@ -128,7 +148,7 @@ class Gateway(socketserver.ThreadingMixIn, HTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, port, host='0.0.0.0'):
+    def __init__(self, port, host=DEFAULT_HOST):
         HTTPServer.__init__(self, (host, port), _GatewayHandler)
 
 
@@ -193,7 +213,7 @@ class IngestPoller(_Poller):
         messages = received.get('Messages', [])
         for message in messages:
             self._deliver(message['Body'])
-            # SNS does not redeliver to a Lambda function that raised, so the
+            # The local runner does not retry failed invocations, so the
             # message is removed whether or not the handler succeeded.
             self._sqs.delete_message(
                 QueueUrl=self.queue_url, ReceiptHandle=message['ReceiptHandle'])
@@ -315,8 +335,9 @@ class StreamPoller(_Poller):
 class Runner(object):
     """Bootstrap a stage and serve the API with both trigger pollers."""
 
-    def __init__(self, stage='local', port=3000, poll_interval=1.0):
+    def __init__(self, stage='local', port=3000, poll_interval=1.0, host=DEFAULT_HOST):
         self.stage = stage
+        self.host = host
         self.requested_port = port
         self.poll_interval = poll_interval
         self.resources = None
@@ -332,7 +353,7 @@ class Runner(object):
                                      poll_interval=self.poll_interval)
         ingest_poller = IngestPoller(self.resources['INGEST_SUB_QUEUE_URL'],
                                      poll_interval=self.poll_interval)
-        self._gateway = Gateway(self.requested_port)
+        self._gateway = Gateway(self.requested_port, host=self.host)
         self.port = self._gateway.server_address[1]
         gateway_thread = threading.Thread(
             target=self._gateway.serve_forever, name='gateway', daemon=True)
@@ -362,20 +383,27 @@ class Runner(object):
         self._gateway = None
 
 
-def main(argv=None):
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(
         description='Serve the API locally and drive the processor and transformer.')
     parser.add_argument('--stage', default='local')
+    parser.add_argument('--host', default=DEFAULT_HOST,
+                        help='address the gateway listens on (default: %(default)s)')
     parser.add_argument('--port', type=int, default=3000)
     parser.add_argument('--poll-interval', type=float, default=1.0)
-    args = parser.parse_args(argv)
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = parse_args(argv)
 
     logging.basicConfig(level=logging.INFO,
                         format='%(asctime)s %(levelname)s %(name)s: %(message)s')
     stopping = threading.Event()
     signal.signal(signal.SIGTERM, lambda signum, frame: stopping.set())
 
-    runner = Runner(stage=args.stage, port=args.port, poll_interval=args.poll_interval)
+    runner = Runner(stage=args.stage, port=args.port, poll_interval=args.poll_interval,
+                    host=args.host)
     runner.start()
     for key in sorted(runner.resources):
         print('{}={}'.format(key, runner.resources[key]), flush=True)

@@ -18,6 +18,8 @@ logger.setLevel(logging.INFO)
 
 REQUIRED_ATTRIBUTES = ('eventId', 'source', 'type', 'timestamp', 'payload')
 NOTIFICATION_SUBJECT = 'event.transformed'
+# DynamoDB items are limited to 400 KB; leave room for the other attributes.
+MAX_FIELDS_BYTES = 350 * 1024
 
 _deserializer = TypeDeserializer()
 
@@ -52,18 +54,24 @@ def transform(item):
 
     try:
         payload = json.loads(item['payload'])
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, RecursionError) as exc:
         raise ValueError('Attribute payload is not valid JSON: {}'.format(exc))
     if not isinstance(payload, (dict, list)):
         raise ValueError('Attribute payload must decode to an object or a list')
+    if common.json_depth(payload, limit=common.MAX_JSON_DEPTH) > common.MAX_JSON_DEPTH:
+        raise ValueError('Attribute payload is nested more than {} levels deep'.format(
+            common.MAX_JSON_DEPTH))
 
     fields = flatten(payload)
+    fields_json = json.dumps(fields, sort_keys=True)
+    if len(fields_json.encode('utf-8')) > MAX_FIELDS_BYTES:
+        raise ValueError('flattened fields exceed {} bytes'.format(MAX_FIELDS_BYTES))
     return {
         'eventId': item['eventId'],
         'source': str(item['source']).lower(),
         'type': str(item['type']).lower(),
         'day': str(item['timestamp'])[:10],
-        'fields': json.dumps(fields, sort_keys=True),
+        'fields': fields_json,
         'fieldCount': len(fields),
         'transformedAt': common.utc_now_iso(),
     }

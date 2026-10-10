@@ -19,19 +19,19 @@ This has to be expressed as Serverless Framework infrastructure-as-code that `se
 
 ## 2. In scope
 
-1. **Event ingestion API** (`apiHandler`, API Gateway proxy integration). `POST /events` accepts a JSON object, assigns a UUID `eventId`, publishes it to the SNS ingest topic and returns `202`. A body that is not JSON, or not a JSON object, returns `400`. Field validation happens later in the processor, so a JSON object with a missing or non-string `type` (for example `{}`) is still accepted with `202` and then dead-lettered.
+1. **Event ingestion API** (`apiHandler`, API Gateway proxy integration). `POST /events` accepts a JSON object, assigns a UUID `eventId`, publishes it to the SNS ingest topic and returns `202`. A body that is not JSON, or not a JSON object, returns `400`. The request must carry `Content-Type: application/json` (`415` otherwise), so a browser cannot send a cross-site form or `text/plain` post without a CORS preflight. A body nested more than 32 levels deep returns `400`, and an SNS message (body plus attributes) above 256 KiB returns `413`. An unexpected error returns `500 {"error":"Internal server error"}`; the exception text and traceback go only to the function log. Field validation happens later in the processor, so a JSON object with a missing or non-string `type` (for example `{}`) is still accepted with `202` and then dead-lettered.
 2. **Event retrieval API.** `GET /events/{id}` returns the stored event (`200`), or `404` if there is none. `GET /events?limit=N&type=T` lists stored events. With `type` it queries the `type-timestamp-index` GSI, newest first. Without it, it scans. `limit` defaults to 50 and must be between 1 and 100, otherwise `400`. Any other method returns `405`.
 3. **Event processor** (`eventProcessor`, triggered by the SNS ingest topic). It does four things:
-   - validates `source` (non-empty string), `type` (non-empty string) and `payload` (object);
+   - validates `source` (non-empty string), `type` (non-empty string), `payload` (object) and a nesting depth of at most 32 levels; a message that cannot be decoded, including one deeper than the interpreter's recursion limit, is dead-lettered rather than raised;
    - enriches the event with `timestamp` and `status`, keeping the `eventId` that the API assigned;
    - writes the event idempotently with `attribute_not_exists(eventId)`, so a redelivered SNS message does not overwrite the stored one;
-   - sends events that fail validation to an SQS failed-events queue, with a reason.
+   - sends events that fail validation to an SQS failed-events queue, with a reason; the original message is truncated (and `"truncated": true` added) when the dead-letter body would reach the 256 KiB SQS limit.
 4. **Data transformer** (`dataTransformer`, triggered by the DynamoDB stream on the events table). For each `INSERT` record it deserializes the new image and builds the transformed record:
    - lower-cases `source` and `type`;
    - flattens the nested payload into dotted keys;
    - derives `day`.
 
-   It then writes the result to the transformed-events table and publishes a notification to the SNS notifications topic. `MODIFY` and `REMOVE` records are skipped. An `INSERT` image that lacks a required attribute (`eventId`, `source`, `type`, `timestamp`, `payload`) is logged and counted as skipped, not raised.
+   It then writes the result to the transformed-events table and publishes a notification to the SNS notifications topic. `MODIFY` and `REMOVE` records are skipped. An `INSERT` image that lacks a required attribute (`eventId`, `source`, `type`, `timestamp`, `payload`), whose payload is not JSON or is nested more than 32 levels deep, or whose flattened fields exceed 350 KiB (DynamoDB items are limited to 400 KB) is logged and counted as skipped, not raised, so one record cannot block the stream shard.
 5. **Shared runtime module** (`functions/common.py`). It provides:
    - configuration from environment variables;
    - boto3 client and resource factories with optional per-service endpoint overrides, which is how the code reaches the local emulator;
@@ -156,8 +156,8 @@ def utc_now_iso() -> str          # "2018-05-01T12:00:00.123456Z"
 
 | Method and path | Request | Success | Errors |
 |---|---|---|---|
-| `POST /events` | JSON object, e.g. `{"source":"billing","type":"invoice.created","payload":{...},"metadata":{...}}` | `202 {"eventId":"<uuid4>","status":"queued"}` (also for an object with missing or invalid fields, which the processor dead-letters) | `400 {"error":"body must be a JSON object"}`, `500` |
-| `GET /events/{id}` | none | `200` stored item, with `payload`/`metadata` decoded to objects | `404 {"error":"Event not found"}` |
+| `POST /events` | JSON object, e.g. `{"source":"billing","type":"invoice.created","payload":{...},"metadata":{...}}` | `202 {"eventId":"<uuid4>","status":"queued"}` (also for an object with missing or invalid fields, which the processor dead-letters) | `400 {"error":"body must be a JSON object"}`, `400 {"error":"body is nested more than 32 levels deep"}`, `413 {"error":"event is larger than 262144 bytes"}`, `415 {"error":"Content-Type must be application/json"}`, `500 {"error":"Internal server error"}` |
+| `GET /events/{id}` | none | `200` stored item, with `payload`/`metadata` decoded to objects | `404 {"error":"Event not found"}`, `500 {"error":"Internal server error"}` |
 | `GET /events?limit=N&type=T` | `limit` from 1 to 100 (default 50), `type` optional | `200 {"events":[...],"count":n}` | `400 {"error":"limit must be an integer between 1 and 100"}` |
 | anything else | | | `405 {"error":"Method not allowed"}` |
 
@@ -200,6 +200,7 @@ Other settings: provisioned throughput of 5 read and 5 write units on the table 
 ```json
 {"eventId": "uuid4 or null", "reason": "Missing required field: payload", "message": "<original SNS Message string>"}
 ```
+When the body would reach 256 KiB, `message` holds a prefix of the original and `"truncated": true` is added.
 
 ### 5.8 SNS notification
 
@@ -224,7 +225,7 @@ Table name = `event-platform-<nameSuffix>-<stage>`.
 ### 5.10 Local CLI
 
 - `python -m local.bootstrap [--stage local]` prints the created ARNs and URLs as `KEY=value` lines and writes them to `var/local.env`.
-- `python -m local.runner [--stage local] [--port 3000] [--poll-interval 1.0]` runs the bootstrap for that stage, then the gateway and both pollers. The compose `app` service uses stage `local`. The integration tests start their own in-process `Runner(stage='it', port=0)` and read every resource name from its bootstrap result, so they never share queues or streams with `app`; `make integration` also stops `app` first.
+- `python -m local.runner [--stage local] [--host 127.0.0.1] [--port 3000] [--poll-interval 1.0]` runs the bootstrap for that stage, then the gateway and both pollers. The gateway listens on `127.0.0.1` unless `--host` is given; the compose `app` service passes `--host 0.0.0.0` so other containers can reach it, and uses stage `local`. The gateway answers `400` for an invalid `Content-Length` and `413`, without reading the body, above 1 MiB. The integration tests start their own in-process `Runner(stage='it', port=0)` and read every resource name from its bootstrap result, so they never share queues or streams with `app`; `make integration` also stops `app` first.
 - `make smoke` runs `scripts/smoke.sh http://app:3000` inside the `tests` container. The `app` service publishes container port 3000 on loopback host port 20730 (`127.0.0.1:20730`), so from the host the gateway is at `http://localhost:20730`.
 
 ## 6. Stack & pinned versions

@@ -169,3 +169,51 @@ def test_mixed_batch_counts_each_record(pipeline, transformed_table):
 
 def test_empty_records_returns_zeros(pipeline):
     assert data_transformer.handler({'Records': []}, None) == {'transformed': 0, 'skipped': 0}
+
+
+def test_transform_rejects_payload_nested_too_deeply():
+    from functions import common
+    depth = common.MAX_JSON_DEPTH + 1
+    payload = '{"a": ' * depth + '1' + '}' * depth
+
+    with pytest.raises(ValueError) as excinfo:
+        data_transformer.transform(stored_item(payload=payload))
+    assert 'nested more than' in str(excinfo.value)
+
+
+def test_transform_accepts_payload_at_maximum_depth():
+    from functions import common
+    depth = common.MAX_JSON_DEPTH
+    payload = '{"a": ' * depth + '1' + '}' * depth
+
+    row = data_transformer.transform(stored_item(payload=payload))
+
+    assert row['fieldCount'] == 1
+
+
+def test_transform_rejects_payload_beyond_recursion_limit():
+    payload = '[' * 100000 + ']' * 100000
+
+    with pytest.raises(ValueError):
+        data_transformer.transform(stored_item(payload=payload))
+
+
+def test_transform_rejects_fields_larger_than_an_item_can_hold():
+    payload = json.dumps({'k{}'.format(index): 'x' * 1000 for index in range(400)})
+
+    with pytest.raises(ValueError) as excinfo:
+        data_transformer.transform(stored_item(payload=payload))
+    assert 'flattened fields exceed' in str(excinfo.value)
+
+
+def test_poison_records_are_skipped_and_the_batch_continues(pipeline, transformed_table):
+    records = [
+        stream_record('INSERT', stored_item(eventId='deep', payload='[' * 100000 + ']' * 100000),
+                      keys={'eventId': 'deep'}),
+        stream_record('INSERT', stored_item(eventId='good'), keys={'eventId': 'good'}),
+    ]
+
+    result = data_transformer.handler({'Records': records}, None)
+
+    assert result == {'transformed': 1, 'skipped': 1}
+    assert [item['eventId'] for item in transformed_table.scan()['Items']] == ['good']

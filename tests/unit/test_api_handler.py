@@ -1,4 +1,5 @@
 import json
+import logging
 import uuid
 
 import boto3
@@ -218,3 +219,136 @@ def test_responses_carry_cors_header(pipeline):
     result = api_handler.handler(apigw_event('GET', path_params={'id': 'nope'}), None)
 
     assert result['headers']['Access-Control-Allow-Origin'] == '*'
+
+
+SENTINEL = 'S3NTINEL-pw'
+
+
+def test_unexpected_error_returns_generic_500_without_exception_text(pipeline, caplog):
+    boom = RuntimeError('cannot reach http://10.0.0.5:4569/internal/path ' + SENTINEL)
+    with mock.patch.object(common, 'resource', side_effect=boom):
+        result = api_handler.handler(apigw_event('GET', path_params={'id': 'x'}), None)
+
+    assert result['statusCode'] == 500
+    assert body_of(result) == {'error': 'Internal server error'}
+    assert SENTINEL not in result['body']
+    assert '10.0.0.5' not in result['body']
+
+
+def test_missing_configuration_is_not_described_to_the_client(aws_env):
+    aws_env.delenv('EVENTS_TABLE')
+
+    result = api_handler.handler(apigw_event('GET', path_params={'id': 'x'}), None)
+
+    assert result['statusCode'] == 500
+    assert body_of(result) == {'error': 'Internal server error'}
+    assert 'EVENTS_TABLE' not in result['body']
+
+
+@pytest.mark.parametrize('method, path_params, body', [
+    ('POST', None, {'source': 's', 'type': 't', 'payload': {}}),
+    ('GET', {'id': 'x'}, None),
+    ('GET', None, None),
+])
+def test_aws_secret_never_reaches_response_or_logs(aws_env, caplog, method, path_params, body):
+    aws_env.setenv('AWS_SECRET_ACCESS_KEY', SENTINEL)
+    aws_env.setenv('AWS_SESSION_TOKEN', SENTINEL + '-token')
+    aws_env.setenv('SNS_ENDPOINT_URL', 'http://127.0.0.1:1')
+    aws_env.setenv('DYNAMODB_ENDPOINT_URL', 'http://127.0.0.1:1')
+    caplog.set_level(logging.INFO)
+
+    with mock.patch('botocore.endpoint.Endpoint._needs_retry', return_value=False):
+        result = api_handler.handler(apigw_event(method, path_params=path_params, body=body),
+                                     None)
+
+    assert result['statusCode'] == 500
+    assert body_of(result) == {'error': 'Internal server error'}
+    assert SENTINEL not in result['body']
+    assert SENTINEL not in caplog.text
+
+
+@pytest.mark.parametrize('content_type', [
+    'text/plain',
+    'application/x-www-form-urlencoded',
+    'multipart/form-data; boundary=x',
+    None,
+])
+def test_post_requires_json_content_type(pipeline, content_type):
+    event = apigw_event('POST', body={'source': 's', 'type': 't', 'payload': {}})
+    event['headers'] = {} if content_type is None else {'Content-Type': content_type}
+
+    result = api_handler.handler(event, None)
+
+    assert result['statusCode'] == 415
+    assert body_of(result) == {'error': 'Content-Type must be application/json'}
+    assert receive_envelopes(pipeline['INGEST_SUB_QUEUE_URL']) == []
+
+
+def test_post_without_headers_is_rejected(pipeline):
+    event = apigw_event('POST', body={'source': 's', 'type': 't', 'payload': {}})
+    event['headers'] = None
+
+    assert api_handler.handler(event, None)['statusCode'] == 415
+
+
+@pytest.mark.parametrize('header', ['content-type', 'Content-Type', 'CONTENT-TYPE'])
+def test_post_accepts_json_content_type_with_charset_any_case(published, header):
+    event = apigw_event('POST', body={'source': 's', 'type': 't', 'payload': {}})
+    event['headers'] = {header: 'Application/JSON; charset=utf-8'}
+
+    assert api_handler.handler(event, None)['statusCode'] == 202
+    assert len(published) == 1
+
+
+def nested(depth):
+    value = {}
+    for _ in range(depth - 1):
+        value = {'a': value}
+    return value
+
+
+def test_post_accepts_body_at_maximum_depth(published):
+    body = nested(common.MAX_JSON_DEPTH)
+    assert common.json_depth(body) == common.MAX_JSON_DEPTH
+
+    result = api_handler.handler(apigw_event('POST', body=body), None)
+
+    assert result['statusCode'] == 202
+
+
+@pytest.mark.parametrize('raw', [
+    json.dumps(nested(common.MAX_JSON_DEPTH + 1)),
+    '{"payload": ' + '[' * 100000 + ']' * 100000 + '}',
+])
+def test_post_rejects_body_nested_too_deeply(pipeline, raw):
+    result = api_handler.handler(apigw_event('POST', body=raw), None)
+
+    assert result['statusCode'] == 400
+    assert body_of(result) == {
+        'error': 'body is nested more than {} levels deep'.format(common.MAX_JSON_DEPTH)}
+    assert receive_envelopes(pipeline['INGEST_SUB_QUEUE_URL']) == []
+
+
+def test_post_rejects_message_larger_than_sns_limit(pipeline):
+    body = {'source': 's', 'type': 't', 'payload': {'blob': 'x' * (256 * 1024)}}
+
+    result = api_handler.handler(apigw_event('POST', body=body), None)
+
+    assert result['statusCode'] == 413
+    assert body_of(result) == {'error': 'event is larger than 262144 bytes'}
+    assert receive_envelopes(pipeline['INGEST_SUB_QUEUE_URL']) == []
+
+
+def test_post_counts_escaped_non_ascii_towards_the_size_limit(pipeline):
+    body = {'source': 's', 'type': 't', 'payload': {'blob': 'é' * (50 * 1024)}}
+    assert len(json.dumps(body, ensure_ascii=False).encode('utf-8')) < 256 * 1024
+
+    result = api_handler.handler(apigw_event('POST', body=body), None)
+
+    assert result['statusCode'] == 413
+
+
+def test_post_just_under_the_size_limit_is_published(published):
+    body = {'source': 's', 'type': 't', 'payload': {'blob': 'x' * (200 * 1024)}}
+
+    assert api_handler.handler(apigw_event('POST', body=body), None)['statusCode'] == 202

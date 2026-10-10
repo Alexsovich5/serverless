@@ -1,5 +1,6 @@
 import os
 import re
+import subprocess
 
 import pytest
 
@@ -83,3 +84,10 @@ def test_template_placeholders_and_comment_removed():
     text = read_readme()
     assert '{{' not in text
     assert '<!--' not in text
+
+
+def test_layout_matches_tracked_files():
+    tracked = subprocess.check_output(['git', 'ls-files'], cwd=ROOT).decode('utf-8').split()
+    layout = layout_paths(layout_block(read_readme()))
+    files = [path for path in layout if not os.path.isdir(os.path.join(ROOT, path))]
+    assert sorted(files) == sorted(tracked)

@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 
 import boto3
+import mock
 import pytest
 
 from functions import event_processor
@@ -178,3 +179,64 @@ def test_dead_letter_sends_spec_shape(pipeline):
 def test_empty_records_returns_zeros(pipeline):
     assert event_processor.handler({'Records': []}, None) == {
         'processed': 0, 'duplicates': 0, 'failed': 0}
+
+
+def deep_payload(depth):
+    value = {}
+    for _ in range(depth - 1):
+        value = {'a': value}
+    return value
+
+
+def test_event_nested_too_deeply_is_dead_lettered(pipeline, events_table):
+    from functions import common
+    message = ingest_message('id-deep', valid_event(payload=deep_payload(common.MAX_JSON_DEPTH)))
+
+    result = event_processor.handler(sns_event([message]), None)
+
+    assert result == {'processed': 0, 'duplicates': 0, 'failed': 1}
+    failed = failed_messages(pipeline)
+    assert failed[0]['eventId'] == 'id-deep'
+    assert failed[0]['reason'] == "Field 'event' is nested more than {} levels deep".format(
+        common.MAX_JSON_DEPTH)
+    assert all_items(events_table) == []
+
+
+def test_message_beyond_recursion_limit_is_dead_lettered_not_raised(pipeline, events_table):
+    raw = '{"eventId": "x", "event": ' + '[' * 100000 + ']' * 100000 + '}'
+    good = ingest_message('id-after', valid_event())
+
+    result = event_processor.handler(sns_event([raw, good]), None)
+
+    assert result == {'processed': 1, 'duplicates': 0, 'failed': 1}
+    failed = failed_messages(pipeline)
+    assert failed[0]['eventId'] is None
+    assert failed[0]['reason'].startswith('Message is not valid JSON')
+    assert [item['eventId'] for item in all_items(events_table)] == ['id-after']
+
+
+def test_dead_letter_of_a_maximum_size_message_fits_in_one_sqs_message(pipeline):
+    raw = 'é' * (256 * 1024 // 2 - 10)
+    sent = []
+    real_client = event_processor.common.client
+
+    def recording_client(service):
+        created = real_client(service)
+        original = created.send_message
+
+        def send_message(**kwargs):
+            sent.append(kwargs['MessageBody'])
+            return original(**kwargs)
+
+        created.send_message = send_message
+        return created
+
+    with mock.patch.object(event_processor.common, 'client', side_effect=recording_client):
+        event_processor.dead_letter(raw, 'id-big', 'some reason')
+
+    assert len(sent[0].encode('utf-8')) <= event_processor.MAX_DEAD_LETTER_BYTES
+    failed = failed_messages(pipeline)
+    assert failed[0]['eventId'] == 'id-big'
+    assert failed[0]['reason'] == 'some reason'
+    assert failed[0]['truncated'] is True
+    assert raw.startswith(failed[0]['message'])
