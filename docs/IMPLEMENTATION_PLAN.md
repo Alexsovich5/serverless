@@ -378,7 +378,7 @@ return the handler's status, headers and body.
 - modify `local/runner.py`, adding:
   - `sns_record(message_str) -> dict`, which wraps a message as `{'Records':[{'EventSource':'aws:sns','Sns':{'Message':...}}]}`.
   - `IngestPoller`, which uses long-polling `receive_message(WaitTimeSeconds=1)`, wraps each SNS envelope's `Message` with `sns_record`, calls `event_processor.handler` and deletes the message.
-  - `StreamPoller(table_name, iterator_type='TRIM_HORIZON')`, which takes the stream ARN from `dynamodbstreams.list_streams()` by matching `TableName` on the client side (`next(s['StreamArn'] for s in resp['Streams'] if s['TableName'] == table_name)`) and raises `LookupError` on start when none matches; never `Streams[0]` and never `LatestStreamArn` (SPEC §11). It gets an iterator of `iterator_type` for every shard on start, follows `NextShardIterator`, and passes batches of records to `data_transformer.handler`.
+  - `StreamPoller(table_name, iterator_type='TRIM_HORIZON')`, which takes the stream ARN from `dynamodbstreams.list_streams()` by matching `TableName` on the client side (`next(s['StreamArn'] for s in resp['Streams'] if s['TableName'] == table_name)`) and raises `LookupError` on start when none matches; never `Streams[0]` and never `LatestStreamArn` (SPEC §11). It gets an iterator of `iterator_type` for every shard on start, follows `NextShardIterator`, and passes batches of records to `data_transformer.handler`. LocalStack 0.8.6's `GetRecords` never returns `NextShardIterator` and its `GetShardIterator` ignores sequence numbers (SPEC §11), so when a response has no `NextShardIterator` the poller reopens the shard with `iterator_type` on the next round, reads it without a `Limit`, and drops records whose `SequenceNumber` is not above the last one it delivered for that shard.
   - Both pollers catch and log any exception per batch and keep running, so one bad record cannot stop the thread or hang a test.
   - `Runner(stage='local', port=3000, poll_interval=1.0)`: `start()` runs `bootstrap(stage)`, sets the env from its result, starts the three threads and exposes `resources` (the bootstrap dict) and the bound `port`; `stop()` shuts them down.
   - `main()` with the `--stage` (default `local`), `--port` and `--poll-interval` options.
@@ -388,6 +388,7 @@ return the handler's status, headers and body.
 - `tests/unit/test_runner.py` adds checks that:
   - `sns_record(...)` produces a record that `event_processor.handler` accepts (moto pipeline);
   - a poller whose handler raises on the first batch logs the error and still delivers the second batch.
+  - `StreamPoller` follows `NextShardIterator` and keeps delivering after a handler error, and, when a response has no `NextShardIterator`, reopens the shard and delivers only records it has not delivered before (stubbed client);
   - `StreamPoller` picks the ARN whose `TableName` matches when a stubbed `list_streams` returns two streams with the other table first, and raises `LookupError` when none matches.
 - `tests/integration/conftest.py` adds a module fixture that starts `Runner(stage='it', port=0)` in-process and reads every table, queue and topic name from `runner.resources`.
 - `tests/integration/test_pipeline.py` checks that:

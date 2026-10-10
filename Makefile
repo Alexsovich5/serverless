@@ -24,6 +24,7 @@ package: build
 	$(RUN) pytest tests/package $(ARGS)
 
 integration: build
+	-$(COMPOSE) stop app
 	$(COMPOSE) rm -sfv localstack
 	$(COMPOSE) up -d localstack
 	$(COMPOSE) run --rm tests pytest tests/integration $(ARGS)

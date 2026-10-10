@@ -8,6 +8,7 @@ import pytest
 
 from functions.common import client
 from local import bootstrap
+from local.runner import Runner
 
 KINESIS_ENDPOINT_URL = os.environ.get('KINESIS_ENDPOINT_URL') or 'http://localstack:4568'
 STAGE = 'it'
@@ -55,6 +56,22 @@ def resources(localstack):
     settings = bootstrap.bootstrap(stage=STAGE)
     os.environ.update(settings)
     return settings
+
+
+@pytest.fixture(scope='module')
+def runner(localstack):
+    """Run the gateway and both pollers in-process for the integration stage."""
+    instance = Runner(stage=STAGE, port=0, poll_interval=0.5)
+    instance.start()
+    try:
+        yield instance
+    finally:
+        instance.stop()
+
+
+@pytest.fixture
+def base_url(runner):
+    return 'http://127.0.0.1:{}'.format(runner.port)
 
 
 def drain(queue_url):
