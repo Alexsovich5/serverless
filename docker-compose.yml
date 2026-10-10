@@ -1,4 +1,4 @@
-version: '2.4'
+name: serverless
 
 services:
   tests:
@@ -26,7 +26,7 @@ services:
     volumes:
       - .:/app
     ports:
-      - '20730:3000'
+      - '127.0.0.1:20730:3000'
     environment:
       AWS_DEFAULT_REGION: us-east-1
       AWS_ACCESS_KEY_ID: testing
@@ -51,11 +51,11 @@ services:
       HOSTNAME_EXTERNAL: localstack
       DEFAULT_REGION: us-east-1
     ports:
-      - '20768:4568'
-      - '20769:4569'
-      - '20770:4570'
-      - '20775:4575'
-      - '20776:4576'
+      - '127.0.0.1:20768:4568'
+      - '127.0.0.1:20769:4569'
+      - '127.0.0.1:20770:4570'
+      - '127.0.0.1:20775:4575'
+      - '127.0.0.1:20776:4576'
     healthcheck:
       test: ["CMD", "python", "-c", "import socket;[socket.create_connection(('localhost',p),2) for p in (4568,4569,4570,4575,4576)]"]
       interval: 5s

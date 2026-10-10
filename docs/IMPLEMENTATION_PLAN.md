@@ -4,7 +4,7 @@ Each task below is **one commit** (12 tasks: T1 to T8, T9a, T9b, T10, T11). Task
 
 ## Conventions
 
-- **Docker only.** Everything runs in Docker, and the host needs only Docker, Compose and make. The Makefile exports `DOCKER_DEFAULT_PLATFORM=linux/amd64` and `COMPOSE_PROJECT_NAME ?= serverless`, and uses `COMPOSE ?= docker compose`. Any host port published by a later task is mapped from the range 20700 to 20799.
+- **Docker only.** Everything runs in Docker, and the host needs only Docker, Compose and make. The Makefile exports `DOCKER_DEFAULT_PLATFORM=linux/amd64` and `COMPOSE_PROJECT_NAME ?= serverless`, and uses `COMPOSE ?= docker compose`. Any host port published by a later task is bound to `127.0.0.1` and mapped from the range 20700 to 20799.
 - **Compose services:**
   - `tests`: built from `Dockerfile`, `FROM python:3.6.5-stretch`, with the repo mounted at `/app`.
   - `sls`: `Dockerfile.sls`, `FROM node:8.11.2`. Added in T7.
@@ -33,7 +33,7 @@ Each task below is **one commit** (12 tasks: T1 to T8, T9a, T9b, T10, T11). Task
   - `ENV PYTHONPATH=/app PYTHONDONTWRITEBYTECODE=1 AWS_DEFAULT_REGION=us-east-1`
   - `WORKDIR /app`
   - copies `requirements*.txt`, then runs `pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt`, then `COPY . .`
-- create `docker-compose.yml`, format `'2.4'` (Compose 1.21.0, 2018-04-10; needed for the `platform:` key used from T8), with one service `tests`: `build: .`, `image: serverless:tests`, `volumes: ['.:/app']`, and env for the region and dummy credentials. The default network is pinned to the subnet `172.47.0.0/24` (`networks.default.ipam.config`), so the stack does not collide with other Compose projects on a shared Docker host.
+- create `docker-compose.yml`, no `version` key (the Compose Specification, which keeps `depends_on` conditions and `platform:`) and a top-level `name: serverless`, with one service `tests`: `build: .`, `image: serverless:tests`, `volumes: ['.:/app']`, and env for the region and dummy credentials. The default network is pinned to the subnet `172.47.0.0/24` (`networks.default.ipam.config`), so the stack does not collide with other Compose projects on a shared Docker host.
 - create `Makefile` with targets `build`, `lint` (`flake8 tests`), `unit`, `test` (`lint unit`) and `shell`.
 - create `requirements-dev.txt` with the exact pins from §6.2: pytest 3.5.1 and its dependencies, flake8 3.5.0 and its dependencies, moto 1.3.3 and the full transitive list.
 - modify `requirements.txt` to the exact pins from §6.1 (`boto3==1.7.28`, `botocore==1.10.28`, `s3transfer==0.1.13`, `jmespath==0.9.3`, `python-dateutil==2.6.1`, `docutils==0.14`, `six==1.11.0`).
@@ -303,7 +303,7 @@ framework) with an SNS trigger and provisioned tables; test the package.
 
 **Files:**
 - modify `docker-compose.yml`:
-  - add a `localstack` service: `image: localstack/localstack:0.8.6`, `platform: linux/amd64`, `SERVICES=dynamodb,dynamodbstreams,kinesis,sns,sqs` (`kinesis` is required: 0.8.6 backs DynamoDB Streams with Kinesis and does not auto-start it, SPEC §4.2), `HOSTNAME_EXTERNAL=localstack`, `DEFAULT_REGION=us-east-1`, ports `4568`, `4569`, `4570`, `4575`, `4576` (published on the host as `20768`, `20769`, `20770`, `20775`, `20776`), and a healthcheck that needs no curl: `python -c "import socket;[socket.create_connection(('localhost',p),2) for p in (4568,4569,4570,4575,4576)]"` (`interval: 5s`, `retries: 60`). When Docker disk space allows, confirm the image's Python with `docker run --rm --entrypoint sh localstack/localstack:0.8.6 -c 'which python'`.
+  - add a `localstack` service: `image: localstack/localstack:0.8.6`, `platform: linux/amd64`, `SERVICES=dynamodb,dynamodbstreams,kinesis,sns,sqs` (`kinesis` is required: 0.8.6 backs DynamoDB Streams with Kinesis and does not auto-start it, SPEC §4.2), `HOSTNAME_EXTERNAL=localstack`, `DEFAULT_REGION=us-east-1`, ports `4568`, `4569`, `4570`, `4575`, `4576` (published on `127.0.0.1` as `20768`, `20769`, `20770`, `20775`, `20776`), and a healthcheck that needs no curl: `python -c "import socket;[socket.create_connection(('localhost',p),2) for p in (4568,4569,4570,4575,4576)]"` (`interval: 5s`, `retries: 60`). When Docker disk space allows, confirm the image's Python with `docker run --rm --entrypoint sh localstack/localstack:0.8.6 -c 'which python'`.
   - `tests` gets the environment `DYNAMODB_ENDPOINT_URL=http://localstack:4569`, `DYNAMODBSTREAMS_ENDPOINT_URL=http://localstack:4570`, `SNS_ENDPOINT_URL=http://localstack:4575` and `SQS_ENDPOINT_URL=http://localstack:4576`.
   - `tests` depends on `localstack` with `condition: service_healthy`.
 - modify `Makefile`:
@@ -416,7 +416,7 @@ records to the handlers, and test the pipeline end to end over HTTP.
 **Goal:** `make up` (`docker compose up -d app`) brings up LocalStack and the runner on port 3000 (host port 20730) in the background. `make smoke` shows an event going through the whole pipeline.
 
 **Files:**
-- modify `docker-compose.yml`: add an `app` service. It uses the same build as `tests`, `command: python -m local.runner --stage local --port 3000`, `ports: ['20730:3000']` (container port 3000 published on host port 20730, inside the 20700 to 20799 range from the conventions), the same endpoint env as `tests`, depends on healthy `localstack`, and has a healthcheck of `python -c "import urllib.request; urllib.request.urlopen('http://localhost:3000/events?limit=1')"`.
+- modify `docker-compose.yml`: add an `app` service. It uses the same build as `tests`, `command: python -m local.runner --stage local --port 3000`, `ports: ['127.0.0.1:20730:3000']` (container port 3000 published on loopback host port 20730, inside the 20700 to 20799 range from the conventions), the same endpoint env as `tests`, depends on healthy `localstack`, and has a healthcheck of `python -c "import urllib.request; urllib.request.urlopen('http://localhost:3000/events?limit=1')"`.
 - create `scripts/smoke.sh` (`#!/bin/sh`, `set -eu`). It takes the base URL as `$1` and:
   1. POSTs `{"source":"Billing","type":"Invoice.Created","payload":{"customer":{"id":42},"amount":19.99}}`;
   2. extracts `eventId` with `python -c`;

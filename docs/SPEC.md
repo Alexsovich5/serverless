@@ -225,7 +225,7 @@ Table name = `event-platform-<nameSuffix>-<stage>`.
 
 - `python -m local.bootstrap [--stage local]` prints the created ARNs and URLs as `KEY=value` lines and writes them to `var/local.env`.
 - `python -m local.runner [--stage local] [--port 3000] [--poll-interval 1.0]` runs the bootstrap for that stage, then the gateway and both pollers. The compose `app` service uses stage `local`. The integration tests start their own in-process `Runner(stage='it', port=0)` and read every resource name from its bootstrap result, so they never share queues or streams with `app`; `make integration` also stops `app` first.
-- `make smoke` runs `scripts/smoke.sh http://app:3000` inside the `tests` container. The `app` service publishes container port 3000 on host port 20730, so from the host the gateway is at `http://localhost:20730`.
+- `make smoke` runs `scripts/smoke.sh http://app:3000` inside the `tests` container. The `app` service publishes container port 3000 on loopback host port 20730 (`127.0.0.1:20730`), so from the host the gateway is at `http://localhost:20730`.
 
 ## 6. Stack & pinned versions
 
@@ -265,7 +265,7 @@ boto3 1.7.28 is the newest boto3 release before the 2018-05-31 cutoff. On real L
 | Node.js (image) | 8.11.2 | 2018-05-15 | Active LTS in May 2018. Serverless 1.x needs Node ≥ 4. |
 | npm (installed in the sls image) | 6.1.0 | 2018-05-24 | Image builds install the committed `package-lock.json` (resolved as of 2018-05-31, see §11) with `npm ci` (added in npm 5.7.0, February 2018). |
 | LocalStack | 0.8.6 | image pushed 2018-04-02 | The usual 2018 local AWS emulator: DynamoDB (DynamoDB Local), DynamoDB Streams (backed by Kinesis/kinesalite, which must also be started), SNS and SQS on separate ports. |
-| Docker Compose file format | 2.4 | Compose 1.21.0 (2018-04-10) | Supports both `depends_on: condition: service_healthy` and the service-level `platform:` key (the latter needs format 2.4). |
+| Docker Compose file format | Compose Specification (no `version` key) | not versioned | Supports both `depends_on: condition: service_healthy` and the service-level `platform:` key (the file sets top-level `name: serverless`). |
 
 ## 7. Docker images (tags verified on Docker Hub, HTTP 200)
 

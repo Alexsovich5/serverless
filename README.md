@@ -20,6 +20,7 @@ Personal project built on the 2018-era stack (AWS Lambda Python 3.6, Serverless 
 
 **Not implemented / known limitations**
 
+- Lab software only: the compose stack publishes every port on `127.0.0.1` and the API has no authentication, so do not expose it beyond the local machine.
 - Never deployed to AWS. AWS services are emulated with LocalStack 0.8.6 for integration tests and the demo, and mocked with moto 1.3.3 for unit tests; API Gateway and the Lambda triggers are simulated by `local/runner.py`. IAM policies and the CloudFormation template are only checked structurally, through `serverless package` and template assertions.
 - No deployment to real AWS (`serverless deploy --stage production`); `serverless package` produces the CloudFormation a deploy would upload.
 - SQS is not used as a Lambda trigger; routing uses SNS, and SQS only holds failed events.
