@@ -413,10 +413,10 @@ records to the handlers, and test the pipeline end to end over HTTP.
 
 ## T10: Add compose app service and a smoke command for the demo flow
 
-**Goal:** `make up` (`docker compose up -d app`) brings up LocalStack and the runner on port 3000 in the background. `make smoke` shows an event going through the whole pipeline.
+**Goal:** `make up` (`docker compose up -d app`) brings up LocalStack and the runner on port 3000 (host port 20730) in the background. `make smoke` shows an event going through the whole pipeline.
 
 **Files:**
-- modify `docker-compose.yml`: add an `app` service. It uses the same build as `tests`, `command: python -m local.runner --stage local --port 3000`, `ports: ['3000:3000']`, the same endpoint env as `tests`, depends on healthy `localstack`, and has a healthcheck of `python -c "import urllib.request; urllib.request.urlopen('http://localhost:3000/events?limit=1')"`.
+- modify `docker-compose.yml`: add an `app` service. It uses the same build as `tests`, `command: python -m local.runner --stage local --port 3000`, `ports: ['20730:3000']` (container port 3000 published on host port 20730, inside the 20700 to 20799 range from the conventions), the same endpoint env as `tests`, depends on healthy `localstack`, and has a healthcheck of `python -c "import urllib.request; urllib.request.urlopen('http://localhost:3000/events?limit=1')"`.
 - create `scripts/smoke.sh` (`#!/bin/sh`, `set -eu`). It takes the base URL as `$1` and:
   1. POSTs `{"source":"Billing","type":"Invoice.Created","payload":{"customer":{"id":42},"amount":19.99}}`;
   2. extracts `eventId` with `python -c`;

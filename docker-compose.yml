@@ -4,6 +4,7 @@ services:
   tests:
     build: .
     image: serverless:tests
+    command: 'true'
     volumes:
       - .:/app
     environment:
@@ -17,6 +18,30 @@ services:
     depends_on:
       localstack:
         condition: service_healthy
+
+  app:
+    build: .
+    image: serverless:tests
+    command: python -m local.runner --stage local --port 3000
+    volumes:
+      - .:/app
+    ports:
+      - '20730:3000'
+    environment:
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: testing
+      AWS_SECRET_ACCESS_KEY: testing
+      DYNAMODB_ENDPOINT_URL: http://localstack:4569
+      DYNAMODBSTREAMS_ENDPOINT_URL: http://localstack:4570
+      SNS_ENDPOINT_URL: http://localstack:4575
+      SQS_ENDPOINT_URL: http://localstack:4576
+    depends_on:
+      localstack:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3000/events?limit=1')"]
+      interval: 5s
+      retries: 60
 
   localstack:
     image: localstack/localstack:0.8.6
@@ -41,6 +66,7 @@ services:
       context: .
       dockerfile: Dockerfile.sls
     image: serverless:sls
+    command: 'true'
     volumes:
       - .:/app
       - /app/node_modules

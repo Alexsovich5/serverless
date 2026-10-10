@@ -7,7 +7,7 @@ NO_ENDPOINTS = -e DYNAMODB_ENDPOINT_URL= -e DYNAMODBSTREAMS_ENDPOINT_URL= \
 	-e SNS_ENDPOINT_URL= -e SQS_ENDPOINT_URL=
 ARGS ?=
 
-.PHONY: build lint unit package integration test down shell
+.PHONY: build lint unit package integration test up smoke demo down shell
 
 build:
 	$(COMPOSE) build tests
@@ -30,6 +30,19 @@ integration: build
 	$(COMPOSE) run --rm tests pytest tests/integration $(ARGS)
 
 test: lint unit package integration
+
+up: build
+	$(COMPOSE) up -d app
+	@i=0; until [ "$$(docker inspect -f '{{.State.Health.Status}}' $$($(COMPOSE) ps -q app))" = healthy ]; do \
+		i=$$((i + 1)); \
+		if [ $$i -gt 120 ]; then echo 'app did not become healthy' >&2; $(COMPOSE) logs app; exit 1; fi; \
+		sleep 2; \
+	done; echo 'app is healthy on http://localhost:20730'
+
+smoke:
+	$(RUN) sh scripts/smoke.sh http://app:3000
+
+demo: up smoke
 
 down:
 	$(COMPOSE) down -v

@@ -93,7 +93,7 @@ This has to be expressed as Serverless Framework infrastructure-as-code that `se
 ### 4.2 Local topology (`make up`, i.e. `docker compose up -d app`)
 
 ```
- host :3000 ──> app container (python:3.6.5-stretch)  local/runner.py
+ host :20730 ─> app :3000 (python:3.6.5-stretch)  local/runner.py
                  ├─ HTTP gateway thread ──> functions.api_handler.handler(apigw_event)
                  │    (stage `local`; integration tests run their own in-process runner on stage `it`)
                  ├─ ingest poller: SQS local-ingest-sub (subscribed to ingest topic)
@@ -225,7 +225,7 @@ Table name = `event-platform-<nameSuffix>-<stage>`.
 
 - `python -m local.bootstrap [--stage local]` prints the created ARNs and URLs as `KEY=value` lines and writes them to `var/local.env`.
 - `python -m local.runner [--stage local] [--port 3000] [--poll-interval 1.0]` runs the bootstrap for that stage, then the gateway and both pollers. The compose `app` service uses stage `local`. The integration tests start their own in-process `Runner(stage='it', port=0)` and read every resource name from its bootstrap result, so they never share queues or streams with `app`; `make integration` also stops `app` first.
-- `make smoke` runs `scripts/smoke.sh http://localhost:3000`.
+- `make smoke` runs `scripts/smoke.sh http://app:3000` inside the `tests` container. The `app` service publishes container port 3000 on host port 20730, so from the host the gateway is at `http://localhost:20730`.
 
 ## 6. Stack & pinned versions
 
